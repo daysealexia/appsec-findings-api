@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FindingType {
+  SAST
+  SCA
+}
+
+enum FindingStatus {
+  OPEN
+  FIXED
+  IGNORED
+}
+
+enum Classification {
+  P1
+  P2
+  P3
+  P4
+  P5
+}
+
+model Finding {
+  id         Int    @id @default(autoincrement())
+  externalId String @unique @map("external_id")
+
+  type       FindingType
+  repository String
+  branch     String
+  commit     String
+  language   String
+  category   String
+  title      String
+  description String
+  ruleId     String @map("rule_id")
+  file       String
+  line       Int
+  score      Int
+  status     FindingStatus
+
+  classification Classification
+
+  author String
+
+  detectedAt      DateTime @map("detected_at")
+  vendorUpdatedAt DateTime @map("vendor_updated_at")
+
+  firstSyncedAt DateTime @default(now()) @map("first_synced_at")
+  lastSyncedAt  DateTime @map("last_synced_at")
+
+  @@index([repository])
+  @@index([type])
+  @@index([status])
+  @@index([classification])
+  @@map("findings")
+}

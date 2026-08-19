@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+
+# Variáveis de ambiente — só .env.example (valores fictícios) é versionado
+.env
+.env.*
+!.env.example
+
+# Cliente Prisma gerado — reconstruído por `prisma generate`
+/src/generated/prisma
+
+# Arquivo do enunciado do processo seletivo — não é necessário para
+# executar o projeto e não deve ir para o repositório público
+Business Case _ Fullstack.pdf
+
+# Configuração local do assistente usado durante o desenvolvimento
+.claude/

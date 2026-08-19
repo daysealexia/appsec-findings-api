@@ -1,0 +1,190 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AppSec Findings API",
+    "version": "1.0.0",
+    "description": "Sincroniza findings de SAST/SCA de um fornecedor externo, aplica regras de classificação (P1-P5) e expõe endpoints de consulta e métricas."
+  },
+  "servers": [{ "url": "http://localhost:3333" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Aplicação no ar",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string", "example": "UP" } } } } }
+          }
+        }
+      }
+    },
+    "/sync": {
+      "post": {
+        "summary": "Sincroniza todos os findings do fornecedor externo",
+        "description": "Busca todas as páginas da API do fornecedor, aplica as regras de classificação e persiste via upsert (idempotente — external_id é a chave natural).",
+        "responses": {
+          "200": {
+            "description": "Sincronização concluída",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SyncSummary" } } }
+          },
+          "429": {
+            "description": "Rate limit excedido (máximo 3 chamadas por minuto)",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          },
+          "502": {
+            "description": "Fornecedor externo indisponível — a resposta inclui o progresso já persistido antes da falha",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/issues": {
+      "get": {
+        "summary": "Lista findings com paginação e filtros",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "repository", "in": "query", "schema": { "type": "string" } },
+          { "name": "type", "in": "query", "schema": { "type": "string", "enum": ["SAST", "SCA"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["OPEN", "FIXED", "IGNORED"] } },
+          { "name": "classification", "in": "query", "schema": { "type": "string", "enum": ["P1", "P2", "P3", "P4", "P5"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listagem paginada",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedFindings" } } }
+          },
+          "400": {
+            "description": "Filtro ou paginação inválidos",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/issues/{id}": {
+      "get": {
+        "summary": "Busca um finding pelo id (externalId do fornecedor, ex: ISS-000001)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "Finding encontrado",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FindingDetail" } } }
+          },
+          "404": {
+            "description": "Finding não encontrado",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Métricas agregadas (total, por status, por classificação)",
+        "responses": {
+          "200": {
+            "description": "Métricas",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Metrics" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Classification": { "type": "string", "enum": ["P1", "P2", "P3", "P4", "P5"] },
+      "FindingType": { "type": "string", "enum": ["SAST", "SCA"] },
+      "FindingStatus": { "type": "string", "enum": ["OPEN", "FIXED", "IGNORED"] },
+      "FindingSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "ISS-000001" },
+          "type": { "$ref": "#/components/schemas/FindingType" },
+          "repository": { "type": "string" },
+          "branch": { "type": "string" },
+          "commit": { "type": "string" },
+          "language": { "type": "string" },
+          "category": { "type": "string" },
+          "title": { "type": "string" },
+          "score": { "type": "integer", "minimum": 0, "maximum": 1000 },
+          "status": { "$ref": "#/components/schemas/FindingStatus" },
+          "classification": { "$ref": "#/components/schemas/Classification" },
+          "detectedAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "FindingDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/FindingSummary" },
+          {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "ruleId": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": "integer" },
+              "author": { "type": "string" }
+            }
+          }
+        ]
+      },
+      "PaginatedFindings": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "total": { "type": "integer" },
+          "totalPages": { "type": "integer" },
+          "hasNext": { "type": "boolean" },
+          "hasPrevious": { "type": "boolean" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/FindingSummary" } }
+        }
+      },
+      "SyncSummary": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "example": "completed" },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "finishedAt": { "type": "string", "format": "date-time" },
+          "durationMs": { "type": "integer" },
+          "pagesFetched": { "type": "integer" },
+          "recordsFetched": { "type": "integer" },
+          "recordsCreated": { "type": "integer" },
+          "recordsUpdated": { "type": "integer" },
+          "recordsSkipped": { "type": "integer" }
+        }
+      },
+      "Metrics": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "open": { "type": "integer" },
+          "fixed": { "type": "integer" },
+          "ignored": { "type": "integer" },
+          "classification": {
+            "type": "object",
+            "properties": {
+              "P1": { "type": "integer" },
+              "P2": { "type": "integer" },
+              "P3": { "type": "integer" },
+              "P4": { "type": "integer" },
+              "P5": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "example": "VALIDATION_ERROR" },
+              "message": { "type": "string" },
+              "details": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}
